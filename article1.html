@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta property="article:published_time" content="2025-09-05T12:00:00.000Z" />
+    <title>Deploying Docker Containers to Google Cloud Run: A Production-Ready Guide</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            background-color: #fdfdfd;
+        }
+        .container {
+            max-width: 720px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            font-family: "Georgia", serif;
+            color: #111;
+            line-height: 1.2;
+        }
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 0.25em;
+        }
+        h2 {
+            font-size: 1.8em;
+            margin-top: 1.5em;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 8px;
+        }
+        h3 {
+            font-size: 1.4em;
+            margin-top: 1.5em;
+            color: #333;
+        }
+        .subtitle {
+            font-style: italic;
+            color: #666;
+            font-size: 1.1em;
+            margin-top: 0;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            margin: 20px 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        pre {
+            background-color: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        code {
+            font-family: "Fira Code", "Courier New", monospace;
+            font-size: 0.95em;
+        }
+        p > code, li > code {
+            background-color: #eef;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        blockquote {
+            border-left: 3px solid #007acc;
+            padding-left: 20px;
+            margin: 20px 0;
+            font-style: italic;
+            color: #555;
+        }
+        .highlight {
+            background-color: #fff3cd;
+            padding: 15px;
+            border: 1px solid #ffeeba;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <main class="container">
+        <article>
+            <h1>Deploying Docker Containers to Google Cloud Run: A Production-Ready Guide</h1>
+            <p class="subtitle">A comprehensive walkthrough of building a containerized application and deploying it to a scalable, serverless environment on GCP.</p>
+
+            <p>The combination of Docker's containerization technology and Google Cloud's powerful serverless platform, Cloud Run, represents one of the most efficient and scalable ways to deploy modern applications. This workflow allows you to package your application and its dependencies into a portable Docker image and run it in a fully managed environment that automatically scales from zero to handle any amount of traffic.</p>
+            <p>This guide provides a professional, end-to-end walkthrough of this process, from creating a simple application and its Dockerfile to pushing it to Google Artifact Registry and deploying it as a public service on Cloud Run. This is the foundational pattern for building robust, cloud-native applications on GCP.</p>
+
+            <hr>
+
+            <h2>Prerequisites</h2>
+            <p>Before you begin, ensure you have the following tools installed and configured:</p>
+            <ul>
+                <li><strong>Google Cloud SDK:</strong> Installed and authenticated (`gcloud auth login`).</li>
+                <li><strong>A GCP Project:</strong> With the Cloud Run and Artifact Registry APIs enabled.</li>
+                <li><strong>Docker:</strong> Installed and running on your local machine.</li>
+            </ul>
+
+            <hr>
+
+            <h2>Step 1: The Application and `Dockerfile`</h2>
+            <p>We'll start with a minimal Python Flask application. Save this as `app.py`:</p>
+            <pre><code>from flask import Flask, request
+import os
+
+app = Flask(__name__)
+
+@app.route('/')
+def hello_world():
+    target = os.environ.get('TARGET', 'World')
+    return f'Hello, {target}!\n'
+
+if __name__ == "__main__":
+    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+</code></pre>
+            <p>Next, we'll create a `Dockerfile` that packages this application. This file uses a multi-stage build to create a small, optimized production image.</p>
+            <pre><code># Use an official Python runtime as a parent image
+FROM python:3.9-slim
+
+# Set the working directory in the container
+WORKDIR /usr/src/app
+
+# Copy the dependencies file to the working directory
+COPY requirements.txt .
+
+# Install any needed packages specified in requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application's code to the working directory
+COPY . .
+
+# Run app.py when the container launches
+CMD ["python", "app.py"]
+</code></pre>
+            <p>Your `requirements.txt` would simply contain `Flask`.</p>
+
+            <hr>
+            
+            <h2>Step 2: Build and Push to Artifact Registry</h2>
+            <p>Instead of Docker Hub, we'll use Google Artifact Registry, GCP's native, private container registry. It's more secure and provides better integration with other GCP services.</p>
+
+            <h3>1. Create a Repository</h3>
+            <p>You only need to do this once per project.</p>
+            <pre><code>gcloud artifacts repositories create my-app-repo \
+    --repository-format=docker \
+    --location=us-central1 \
+    --description="Docker repository for my application"
+</code></pre>
+
+            <h3>2. Build and Tag the Image</h3>
+            <p>First, configure the Docker client to authenticate with Artifact Registry. Then, build and tag your image with the full path to your new repository.</p>
+            <pre><code># Configure Docker authentication
+gcloud auth configure-docker us-central1-docker.pkg.dev
+
+# Build the image
+docker build -t us-central1-docker.pkg.dev/YOUR_PROJECT_ID/my-app-repo/my-app:1.0.0 .
+</code></pre>
+            
+            <h3>3. Push the Image</h3>
+            <pre><code>docker push us-central1-docker.pkg.dev/YOUR_PROJECT_ID/my-app-repo/my-app:1.0.0
+</code></pre>
+            <p>Your container image is now securely stored in GCP, ready for deployment.</p>
+
+            <div class="highlight">
+                <p><strong>Security Note:</strong> Using Artifact Registry and IAM (Identity and Access Management), you can precisely control who has access to pull or push images, a critical aspect of a secure software supply chain.</p>
+            </div>
+
+            <hr>
+
+            <h2>Step 3: Deploy to Google Cloud Run</h2>
+            <p>With the image in the registry, deploying to Cloud Run is a single command. The `gcloud run deploy` command will create a new service and expose it to the internet.</p>
+            <pre><code>gcloud run deploy my-app-service \
+  --image=us-central1-docker.pkg.dev/YOUR_PROJECT_ID/my-app-repo/my-app:1.0.0 \
+  --platform=managed \
+  --region=us-central1 \
+  --allow-unauthenticated
+</code></pre>
+            <p>GCP will provide you with a public URL. Navigating to this URL in your browser will show your running application. Cloud Run will automatically handle TLS termination, scaling (even to zero), and create a new revision for every new image you deploy.</p>
+
+            <hr>
+
+            <h2>Conclusion: The Power of Serverless Containers</h2>
+            <p>This workflow demonstrates a powerful, production-ready pattern for modern application deployment. By combining Docker's portable and consistent packaging with the zero-ops, pay-per-use model of Google Cloud Run, you can deploy highly scalable and cost-effective services without ever having to manage a server. Automating these steps with a CI/CD tool like Google Cloud Build is the logical next step to creating a fully automated, professional deployment pipeline.</p>
+        </article>
+    </main>
+
+</body>
+</html>
